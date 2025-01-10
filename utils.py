@@ -33,6 +33,7 @@ class CfgNode:
         parts = []
         for k, v in self.__dict__.items():
             if isinstance(v, CfgNode):
+                
                 parts.append("%s:\n" % k)
                 parts.append(v._str_helper(indent + 1))
             else:
