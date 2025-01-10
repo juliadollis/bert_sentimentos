@@ -17,8 +17,10 @@ class CausalSelfAttention(nn.Module):
         self.c_proj = nn.Linear(config.n_embd, config.n_embd)
         self.attn_dropout = nn.Dropout(config.attn_pdrop)
         self.resid_dropout = nn.Dropout(config.resid_pdrop)
-        self.register_buffer("bias", torch.tril(torch.ones(config.block_size, config.block_size))
-                                     .view(1, 1, config.block_size, config.block_size))
+        self.register_buffer(
+            "bias",
+            torch.tril(torch.ones(config.block_size, config.block_size)).view(1, 1, config.block_size, config.block_size)
+        )
         self.n_head = config.n_head
         self.n_embd = config.n_embd
         self.block_size = config.block_size
@@ -84,20 +86,17 @@ class BERT(nn.Module):
         self.block_size = config.block_size
         self.vocab_size = config.vocab_size
 
-        # Removemos o 'assert type_given ^ params_given'
-        type_given = config.model_type is not None
-        params_given = all([config.n_layer is not None, config.n_head is not None, config.n_embd is not None])
-        # if type_given ^ params_given:
-        #     pass
-        # else:
-        #     pass
-        # Ajuste: se model_type for algo conhecido, atualizamos o config
-        if type_given:
+        # --------------- REMOVIDO O ASSERT ---------------
+        # type_given = config.model_type is not None
+        # params_given = all([config.n_layer is not None, config.n_head is not None, config.n_embd is not None])
+        # assert type_given ^ params_given  # <== REMOVIDO
+
+        # Se quiser sobrescrever config de acordo com model_type:
+        if config.model_type is not None:
             config.merge_from_dict({
                 'gpt-mini':   dict(n_layer=6, n_head=6, n_embd=192),
                 'gpt-micro':  dict(n_layer=4, n_head=4, n_embd=128),
                 'gpt-nano':   dict(n_layer=3, n_head=3, n_embd=48),
-                # se "bert" for default, podemos deixar sem sobrescrever
             }.get(config.model_type, {}))
 
         # Construção do transformador
@@ -116,10 +115,10 @@ class BERT(nn.Module):
         self.apply(self._init_weights)
         for pn, p in self.named_parameters():
             if pn.endswith('c_proj.weight'):
-                torch.nn.init.normal_(p, mean=0.0, std=0.02/math.sqrt(2 * config.n_layer))
+                torch.nn.init.normal_(p, mean=0.0, std=0.02 / (2.0**0.5 * config.n_layer))
 
         n_params = sum(p.numel() for p in self.transformer.parameters()) + sum(p.numel() for p in self.classifier.parameters())
-        print("number of parameters: %.2fM" % (n_params/1e6,))
+        print("number of parameters: %.2fM" % (n_params / 1e6,))
 
     def _init_weights(self, module):
         if isinstance(module, nn.Linear):
@@ -135,17 +134,18 @@ class BERT(nn.Module):
     def configure_optimizers(self, train_config):
         decay = set()
         no_decay = set()
-        whitelist_weight_modules = (torch.nn.Linear, )
+        whitelist_weight_modules = (torch.nn.Linear,)
         blacklist_weight_modules = (torch.nn.LayerNorm, torch.nn.Embedding)
         for mn, m in self.named_modules():
             for pn, p in m.named_parameters():
-                fpn = '%s.%s' % (mn, pn) if mn else pn
+                fpn = f'{mn}.{pn}' if mn else pn
                 if pn.endswith('bias'):
                     no_decay.add(fpn)
                 elif pn.endswith('weight') and isinstance(m, whitelist_weight_modules):
                     decay.add(fpn)
                 elif pn.endswith('weight') and isinstance(m, blacklist_weight_modules):
                     no_decay.add(fpn)
+
         param_dict = {pn: p for pn, p in self.named_parameters()}
         inter_params = decay & no_decay
         union_params = decay | no_decay
@@ -159,11 +159,6 @@ class BERT(nn.Module):
         return optimizer
 
     def forward(self, idx, labels=None, mask=None):
-        """
-        idx: (batch_size, seq_length)
-        labels: (batch_size,) -> 0 ou 1
-        mask: se quiser, pode usar para attention mask
-        """
         device = idx.device
         b, t = idx.size()
         assert t <= self.block_size, f"Seq len {t} > block_size {self.block_size}"
@@ -177,8 +172,7 @@ class BERT(nn.Module):
             x = block(x, mask)
 
         x = self.transformer.ln_f(x)
-
-        # Usamos o embedding do primeiro token para classificar
+        # Usa o primeiro token como "pooled output"
         logits = self.classifier(x[:, 0, :])
 
         loss = None
