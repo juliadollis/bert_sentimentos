@@ -32,8 +32,9 @@ class Trainer:
         else:
             self.device = config.device
 
-        self.model = self.model.to(self.device)
+        self.model.to(self.device)
         print("running on device", self.device)
+
         self.iter_num = 0
         self.iter_time = 0.0
         self.iter_dt = 0.0
@@ -52,12 +53,46 @@ class Trainer:
         model, config = self.model, self.config
         self.optimizer = model.configure_optimizers(config)
 
+        # Precisamos de um collate_fn para lidar com PAD
+        def collate_fn(batch):
+            """
+            Cada item de batch é (input_ids, label),
+            que podem ter comprimentos diferentes.
+            """
+            input_ids_list = []
+            labels_list = []
+            max_len = 0
+
+            # Primeiro, acha o comprimento máximo real dentro do batch
+            for (inp, lbl) in batch:
+                max_len = max(max_len, inp.size(0))
+            
+            # Entretanto, não pode ultrapassar block_size
+            max_len = min(max_len, model.block_size)
+
+            # Agora pad ou trunca cada seq
+            for (inp, lbl) in batch:
+                if inp.size(0) > max_len:
+                    inp = inp[:max_len]
+                else:
+                    pad_size = max_len - inp.size(0)
+                    if pad_size > 0:
+                        inp = torch.cat([inp, torch.zeros(pad_size, dtype=torch.long)], dim=0)
+                input_ids_list.append(inp.unsqueeze(0))
+                labels_list.append(lbl)
+
+            # Empilha tudo
+            input_ids_tensor = torch.cat(input_ids_list, dim=0)  # (batch, seq_len)
+            labels_tensor = torch.stack(labels_list, dim=0)
+            return input_ids_tensor, labels_tensor
+
         train_loader = DataLoader(
             self.train_dataset,
             shuffle=True,
             pin_memory=True,
             batch_size=config.batch_size,
             num_workers=config.num_workers,
+            collate_fn=collate_fn  # <--- collate_fn CUSTOM
         )
 
         model.train()
@@ -76,6 +111,7 @@ class Trainer:
 
                 self.loss = loss.item()
                 self.trigger_callbacks('on_batch_end')
+
                 self.iter_num += 1
                 tnow = time.time()
                 self.iter_dt = tnow - self.iter_time
