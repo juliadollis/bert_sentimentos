@@ -161,19 +161,3 @@ class BPETokenizer:
         assert idx.ndim == 1
         text = self.encoder.decode(idx.tolist())
         return text
-
-if __name__ == '__main__':
-    text = "Hello!! I'm Andrej Karpathy. It's 2022. w00t :D 🤗"
-    e = get_encoder()
-    r = e.encode_and_show_work(text)
-
-    print("Original text is:")
-    print(text)
-    print("First the text gets pre-tokenized:")
-    print(r['tokens'])
-    print("Detailed steps:")
-    for part in r['parts']:
-        print(part)
-    print("Final outcome (bpe_idx):")
-    print(r['bpe_idx'])
-    print("Ready to feed into a Transformer!")
