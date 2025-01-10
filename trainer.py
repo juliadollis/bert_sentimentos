@@ -26,10 +26,12 @@ class Trainer:
         self.train_dataset = train_dataset
         self.valid_dataset = valid_dataset
         self.callbacks = defaultdict(list)
+
         if config.device == 'auto':
             self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
         else:
             self.device = config.device
+
         self.model = self.model.to(self.device)
         print("running on device", self.device)
         self.iter_num = 0
@@ -52,7 +54,7 @@ class Trainer:
 
         train_loader = DataLoader(
             self.train_dataset,
-            shuffle=True,  # <--- Para classificação, normalmente não usamos replacement
+            shuffle=True,
             pin_memory=True,
             batch_size=config.batch_size,
             num_workers=config.num_workers,
@@ -64,26 +66,21 @@ class Trainer:
 
         while True:
             for batch in train_loader:
-                # batch deve ser (input_ids, labels)
                 x, labels = [t.to(self.device) for t in batch]
-
-                # forward
                 logits, loss = model(x, labels=labels)
 
-                # backward
                 model.zero_grad(set_to_none=True)
                 loss.backward()
                 torch.nn.utils.clip_grad_norm_(model.parameters(), config.grad_norm_clip)
                 self.optimizer.step()
 
-                self.loss = loss.item()  # para callbacks
+                self.loss = loss.item()
                 self.trigger_callbacks('on_batch_end')
                 self.iter_num += 1
                 tnow = time.time()
                 self.iter_dt = tnow - self.iter_time
                 self.iter_time = tnow
 
-                # se max_iters estiver definido, interrompe
                 if config.max_iters is not None and self.iter_num >= config.max_iters:
                     break
 
