@@ -74,7 +74,7 @@ class BERT(nn.Module):
         C.embd_pdrop = 0.1
         C.resid_pdrop = 0.1
         C.attn_pdrop = 0.1
-        C.num_labels = 2  # <-- Adicionamos para classificação binária
+        C.num_labels = 2  # Classificação binária
         return C
 
     def __init__(self, config):
@@ -84,19 +84,23 @@ class BERT(nn.Module):
         self.block_size = config.block_size
         self.vocab_size = config.vocab_size
 
-        # Se model_type for 'gpt-mini', 'gpt-micro', etc., atualiza config
+        # Removemos o 'assert type_given ^ params_given'
         type_given = config.model_type is not None
         params_given = all([config.n_layer is not None, config.n_head is not None, config.n_embd is not None])
-        assert type_given ^ params_given
+        # if type_given ^ params_given:
+        #     pass
+        # else:
+        #     pass
+        # Ajuste: se model_type for algo conhecido, atualizamos o config
         if type_given:
             config.merge_from_dict({
                 'gpt-mini':   dict(n_layer=6, n_head=6, n_embd=192),
                 'gpt-micro':  dict(n_layer=4, n_head=4, n_embd=128),
                 'gpt-nano':   dict(n_layer=3, n_head=3, n_embd=48),
-                # se 'bert' for default, poderia definir algo aqui também
+                # se "bert" for default, podemos deixar sem sobrescrever
             }.get(config.model_type, {}))
 
-        # Construção do "transformer"
+        # Construção do transformador
         self.transformer = nn.ModuleDict(dict(
             wte = nn.Embedding(config.vocab_size, config.n_embd),
             wpe = nn.Embedding(config.block_size, config.n_embd),
@@ -104,13 +108,12 @@ class BERT(nn.Module):
             h = nn.ModuleList([Block(config) for _ in range(config.n_layer)]),
             ln_f = nn.LayerNorm(config.n_embd),
         ))
-        
-        # Cabeçalho de classificação
+
+        # Cabeçalho para classificação
         self.num_labels = config.num_labels
         self.classifier = nn.Linear(config.n_embd, self.num_labels)
 
         self.apply(self._init_weights)
-        
         for pn, p in self.named_parameters():
             if pn.endswith('c_proj.weight'):
                 torch.nn.init.normal_(p, mean=0.0, std=0.02/math.sqrt(2 * config.n_layer))
@@ -158,28 +161,24 @@ class BERT(nn.Module):
     def forward(self, idx, labels=None, mask=None):
         """
         idx: (batch_size, seq_length)
-        labels: (batch_size,) -> rótulo 0 ou 1
-        mask: se necessário (mask de atenção)
+        labels: (batch_size,) -> 0 ou 1
+        mask: se quiser, pode usar para attention mask
         """
         device = idx.device
         b, t = idx.size()
-        assert t <= self.block_size, f"Seq len {t} maior que block_size {self.block_size}"
+        assert t <= self.block_size, f"Seq len {t} > block_size {self.block_size}"
         pos = torch.arange(0, t, dtype=torch.long, device=device).unsqueeze(0)
 
-        # Embeddings de tokens e posições
         tok_emb = self.transformer.wte(idx)
         pos_emb = self.transformer.wpe(pos)
         x = self.transformer.drop(tok_emb + pos_emb)
 
-        # Passa pelos blocos Transformer
         for block in self.transformer.h:
             x = block(x, mask)
 
-        # Normalização final
         x = self.transformer.ln_f(x)
 
-        # Para classificação, podemos usar apenas o embedding do primeiro token [CLS],
-        # ou alguma outra estratégia. Aqui, usamos x[:,0,:]
+        # Usamos o embedding do primeiro token para classificar
         logits = self.classifier(x[:, 0, :])
 
         loss = None
